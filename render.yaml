@@ -1,0 +1,47 @@
+# Bachatly API — Render free-tier blueprint
+# Render dashboard → New → Blueprint → connect repo, ya manual Web Service.
+services:
+  - type: web
+    name: bachatly-api
+    runtime: node
+    plan: free
+    # Build: deps → production migrations → API build
+    buildCommand: >-
+      pnpm install &&
+      pnpm --filter @bachatly/database prisma:migrate:deploy &&
+      pnpm --filter bachatly-api build
+    # Serves from the repo root (nest build emits apps/api/dist/...)
+    startCommand: node apps/api/dist/apps/api/src/main
+    healthCheckPath: /api/v1/healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: NODE_ENV
+        value: production
+      # Render injects PORT automatically; the API reads process.env.PORT.
+      - key: DATABASE_URL
+        sync: false # Supabase pooler URL, e.g. postgresql://postgres.xxx:PASS@aws-0-x-pooler.supabase.com:6543/postgres?pgbouncer=true
+      - key: REDIS_URL
+        sync: false # Upstash Redis URL, e.g. rediss://default:PASS@xxx.upstash.io:6379
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_TTL
+        value: 15m
+      - key: JWT_REFRESH_TTL
+        value: 30d
+      - key: QR_TOKEN_TTL_SECONDS
+        value: 90
+      - key: CORS_ORIGINS
+        sync: false # comma-separated, e.g. https://bachatly.netlify.app,https://www.tumharadomain.pk
+      - key: FRONTEND_URL
+        sync: false # e.g. https://bachatly.netlify.app (used for referral links)
+      - key: APP_NAME
+        value: Bachatly
+      - key: CURRENCY
+        value: PKR
+      - key: TIMEZONE
+        value: Asia/Karachi
+      # Optional (fill later): EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASSWORD, EMAIL_FROM,
+      # GOOGLE_MAPS_API_KEY, NEXT_PUBLIC_GOOGLE_MAPS_API_KEY

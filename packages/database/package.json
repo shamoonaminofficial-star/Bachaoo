@@ -1,0 +1,36 @@
+{
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "bcryptjs": "^2.4.3"
+  },
+  "description": "Bachatly database layer \u2014 Prisma schema, client factory and seed data (original design).",
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20.17.0",
+    "prisma": "^5.22.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "files": [
+    "dist",
+    "prisma/schema.prisma"
+  ],
+  "license": "UNLICENSED",
+  "main": "./dist/index.js",
+  "name": "@bachatly/database",
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "tsx prisma/seed.ts",
+    "prisma:studio": "prisma studio",
+    "prisma:migrate:deploy": "prisma migrate deploy"
+  },
+  "type": "commonjs",
+  "types": "./dist/index.d.ts",
+  "version": "0.1.0"
+}

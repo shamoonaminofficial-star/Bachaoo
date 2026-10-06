@@ -1,0 +1,1633 @@
+// ============================================================================
+// Bachatly database schema — original design.
+// "Save More. Live More." — deals / discounts / membership marketplace.
+// Pakistan-first, multi-country ready.
+//
+// Conventions:
+//   - Money is stored as INTEGER paisa (Rs. 1 = 100). Display as "Rs.".
+//   - All model ids: String @id @default(uuid()) @db.Uuid
+//   - Every model: createdAt / updatedAt (immutable ledgers: createdAt only)
+//   - Soft-delete `deletedAt` on all major entities.
+//   - Default timezone Asia/Karachi, default country Pakistan.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum MembershipStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum DealStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  PUBLISHED
+  PAUSED
+  REJECTED
+  EXPIRED
+}
+
+enum DealType {
+  PERCENT_OFF
+  FLAT_OFF
+  BUY_ONE_GET_ONE
+  FREE_ITEM
+  CASHBACK
+}
+
+enum PaymentStatus {
+  PENDING
+  AWAITING_VERIFICATION // manual receipt uploaded, waiting for admin review
+  PAID
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  CANCELLED
+}
+
+enum PaymentGateway {
+  STRIPE
+  JAZZCASH
+  EASYPASA
+  BANK_TRANSFER
+  MANUAL
+}
+
+enum VoucherStatus {
+  AVAILABLE
+  REDEEMED
+  EXPIRED
+  CANCELLED
+}
+
+enum VoucherSource {
+  FREE
+  PURCHASED
+  REWARD
+  PROMOTIONAL
+  REFERRAL
+}
+
+enum CashbackStatus {
+  PENDING
+  APPROVED
+  AVAILABLE
+  REDEEMED
+  REJECTED
+  EXPIRED
+}
+
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  MORE_INFO_REQUIRED
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_FOR_CUSTOMER
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum SettlementStatus {
+  PENDING
+  PROCESSING
+  PAID
+  DISPUTED
+  CANCELLED
+}
+
+enum RedemptionStatus {
+  INITIATED
+  CONFIRMED
+  CANCELLED
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum NotificationChannel {
+  IN_APP
+  PUSH
+  EMAIL
+  SMS
+  WHATSAPP
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  OPENED
+  CLICKED
+  FAILED
+  // Channel attempted but provider not configured — never pretend-delivered.
+  SKIPPED
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  CANCELLED
+}
+
+enum CommissionType {
+  PERCENTAGE
+  FIXED
+}
+
+enum CommissionScope {
+  GLOBAL
+  CATEGORY
+  BUSINESS
+}
+
+enum ReferralStatus {
+  INVITED
+  QUALIFIED
+  REWARDED
+  EXPIRED
+}
+
+enum StaffRole {
+  OWNER
+  MANAGER
+  CASHIER
+  SCANNER
+}
+
+enum BannerPlacement {
+  HOME_HERO
+  HOME_SECONDARY
+  DEALS_PAGE
+  CATEGORY_PAGE
+  MEMBERSHIP_PAGE
+  CUSTOMER_DASHBOARD
+}
+
+enum WalletTxnType {
+  CREDIT
+  DEBIT
+}
+
+enum PointsTxnType {
+  EARN
+  REDEEM
+  EXPIRE
+  ADJUST
+}
+
+enum CashbackTxnType {
+  CREDIT
+  DEBIT
+  EXPIRE
+  ADJUST
+}
+
+// ---------------------------------------------------------------------------
+// Location hierarchy: Country -> Province -> City -> Area
+// ---------------------------------------------------------------------------
+
+model Country {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  code      String   @unique // ISO code, e.g. "PK"
+  currency  String   @default("PKR")
+  timezone  String   @default("Asia/Karachi")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  provinces Province[]
+}
+
+model Province {
+  id        String   @id @default(uuid()) @db.Uuid
+  countryId String   @db.Uuid
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  cities  City[]
+
+  @@index([countryId])
+}
+
+model City {
+  id        String   @id @default(uuid()) @db.Uuid
+  provinceId String  @db.Uuid
+  name      String
+  slug      String   @unique
+  isDefault Boolean  @default(false) // default city for new users (Sargodha)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  province Province @relation(fields: [provinceId], references: [id], onDelete: Cascade)
+  areas    Area[]
+  users    User[]
+  branches Branch[]
+  businessApplications BusinessApplication[]
+
+  @@index([provinceId])
+}
+
+model Area {
+  id        String   @id @default(uuid()) @db.Uuid
+  cityId    String   @db.Uuid
+  name      String
+  slug      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  city     City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  branches Branch[]
+  businessApplications BusinessApplication[]
+  users    User[] // optional preferred area for a customer
+
+  @@unique([cityId, slug])
+  @@index([cityId])
+}
+
+// ---------------------------------------------------------------------------
+// Taxonomy: Category -> Subcategory
+// ---------------------------------------------------------------------------
+
+model Category {
+  id         String    @id @default(uuid()) @db.Uuid
+  name       String
+  slug       String    @unique
+  icon       String?
+  image      String?
+  sortOrder  Int       @default(0)
+  isActive   Boolean   @default(true)
+  deletedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  subcategories      Subcategory[]
+  deals              Deal[]
+  businesses         Business[]
+  businessApplications BusinessApplication[]
+  savingsTransactions SavingsTransaction[]
+  commissions        Commission[]
+
+  @@index([isActive, sortOrder])
+}
+
+model Subcategory {
+  id         String   @id @default(uuid()) @db.Uuid
+  categoryId String   @db.Uuid
+  name       String
+  slug       String
+  sortOrder  Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  deals    Deal[]
+
+  @@unique([categoryId, slug])
+  @@index([categoryId])
+}
+
+// ---------------------------------------------------------------------------
+// Users, profiles, RBAC, sessions
+// ---------------------------------------------------------------------------
+
+model User {
+  id              String     @id @default(uuid()) @db.Uuid
+  email           String?    @unique
+  phone           String?    @unique
+  passwordHash    String?
+  firstName       String
+  lastName        String
+  cityId          String?    @db.Uuid
+  areaId          String?    @db.Uuid
+  language        String? // 'ur' | 'en'
+  status          UserStatus @default(ACTIVE)
+  emailVerifiedAt DateTime?
+  phoneVerifiedAt DateTime?
+  referralCode    String     @unique
+  referredById    String?    @db.Uuid
+  deletedAt       DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  city     City? @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  area     Area? @relation(fields: [areaId], references: [id], onDelete: SetNull)
+  referrer User? @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)
+
+  referredUsers         User[]               @relation("UserReferrals")
+  profile               UserProfile?
+  roles                 UserRole[]
+  sessions              Session[]
+  ownedBusinesses       Business[]
+  businessOwnerships    BusinessOwner[]
+  staffMemberships      BusinessStaff[]
+  sentStaffInvitations  StaffInvitation[] @relation("StaffInvitationInviter")
+  memberships           Membership[]
+  membershipHistoryActs MembershipHistory[]
+  notificationPreferences NotificationPreference?
+  userVouchers          UserVoucher[]
+  redemptions           Redemption[]         @relation("RedemptionCustomer")
+  redemptionsConfirmed  Redemption[]         @relation("RedemptionConfirmer")
+  savingsTransactions   SavingsTransaction[]
+  wallet                Wallet?
+  rewardAccount         RewardAccount?
+  rewardTransactions    RewardTransaction[]
+  cashbacks             Cashback[]
+  cashbackTransactions  CashbackTransaction[]
+  cashbackWithdrawals   CashbackWithdrawal[]
+  referralsMade         Referral[]           @relation("ReferralReferrer")
+  referralReceived      Referral?            @relation("ReferralReferred")
+  referralRewards       ReferralReward[]
+  payments              Payment[]
+  reviews               Review[]
+  favorites             Favorite[]
+  notifications         Notification[]
+  campaignsCreated      NotificationCampaign[]
+  dealsReviewed         Deal[]
+  receiptsReviewed      ManualPaymentReceipt[]
+  supportTickets        SupportTicket[]      @relation("TicketCustomer")
+  assignedTickets       SupportTicket[]      @relation("TicketAssignee")
+  supportMessages       SupportMessage[]
+  cmsPagesUpdated       CMSPage[]
+  settingsUpdated       SystemSetting[]
+  auditLogs             AuditLog[]
+
+  @@index([cityId])
+  @@index([status])
+  @@index([referredById])
+}
+
+model UserProfile {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @unique @db.Uuid
+  avatar      String?
+  dateOfBirth DateTime?
+  gender      String?
+  address     String?
+  bio         String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique // e.g. SUPER_ADMIN, CUSTOMER
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  permissions RolePermission[]
+  users       UserRole[]
+}
+
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique // e.g. "deal.approve"
+  description String?
+  group       String? // UI grouping, e.g. "Deals"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String   @db.Uuid
+  permissionId String   @db.Uuid
+  createdAt    DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model UserRole {
+  userId     String   @db.Uuid
+  roleId     String   @db.Uuid
+  assignedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+}
+
+model Session {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @db.Uuid
+  refreshTokenHash String    @unique
+  userAgent        String?
+  ip               String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  rotatedAt        DateTime?
+  createdAt        DateTime  @default(now()) // immutable: no updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Businesses, owners, staff, branches
+// ---------------------------------------------------------------------------
+
+model Business {
+  id                String            @id @default(uuid()) @db.Uuid
+  slug              String            @unique
+  name              String
+  description       String
+  logo              String?
+  coverImage        String?
+  categoryId        String            @db.Uuid
+  ownerUserId       String?           @db.Uuid
+  website           String?
+  phone             String?
+  email             String?
+  isVerified        Boolean           @default(false)
+  isActive          Boolean           @default(true)
+  applicationStatus ApplicationStatus @default(DRAFT)
+  ratingAvg         Float             @default(0)
+  ratingCount       Int               @default(0)
+  deletedAt         DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  category  Category @relation(fields: [categoryId], references: [id])
+  owner     User?    @relation(fields: [ownerUserId], references: [id], onDelete: SetNull)
+
+  owners       BusinessOwner[]
+  staff        BusinessStaff[]
+  invitations  StaffInvitation[]
+  branches     Branch[]
+  deals        Deal[]
+  vouchers     Voucher[]
+  redemptions  Redemption[]
+  reviews      Review[]
+  settlements  Settlement[]
+  favorites    Favorite[]
+  supportTickets SupportTicket[]
+  commissions  Commission[]
+  commissionEntries CommissionEntry[]
+
+  @@index([categoryId])
+  @@index([ownerUserId])
+  @@index([applicationStatus])
+  @@index([isVerified, isActive])
+}
+
+// ---------------------------------------------------------------------------
+// Partner applications: submitted before a Business exists. On approval a
+// Business (+ BusinessOwner link, owner User with BUSINESS_OWNER role) is
+// created and createdBusinessId is set. Run `prisma migrate dev` after adding.
+// ---------------------------------------------------------------------------
+
+model BusinessApplication {
+  id           String            @id @default(uuid()) @db.Uuid
+  businessName String
+  ownerName    String
+  email        String
+  phone        String
+  whatsapp     String?
+  categoryId   String            @db.Uuid
+  cityId       String            @db.Uuid
+  areaId       String?           @db.Uuid
+  address      String
+  mapsUrl      String?
+  website      String?
+  instagram    String?
+  facebook     String?
+  description  String            @db.Text
+  logoUrl      String?
+  documentUrls String[]          @default([]) // business docs + owner ID uploads
+  status       ApplicationStatus @default(SUBMITTED)
+
+  applicantUserId   String? @db.Uuid // set when a logged-in user applies
+  createdBusinessId String? @db.Uuid // set on approval
+
+  reviewedById String?   @db.Uuid
+  reviewedAt   DateTime?
+  reviewReason String?   @db.Text // required for REJECTED / MORE_INFO_REQUIRED
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  category Category @relation(fields: [categoryId], references: [id])
+  city     City     @relation(fields: [cityId], references: [id])
+  area     Area?    @relation(fields: [areaId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([email])
+  @@index([categoryId])
+  @@index([cityId])
+}
+
+model BusinessOwner {
+  id         String    @id @default(uuid()) @db.Uuid
+  businessId String    @db.Uuid
+  userId     String    @db.Uuid
+  role       StaffRole @default(OWNER)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, userId])
+  @@index([userId])
+}
+
+model BusinessStaff {
+  id         String    @id @default(uuid()) @db.Uuid
+  businessId String    @db.Uuid
+  userId     String    @db.Uuid
+  role       StaffRole
+  branchId   String?   @db.Uuid
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch   Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, userId])
+  @@index([userId])
+  @@index([branchId])
+}
+
+model Branch {
+  id           String    @id @default(uuid()) @db.Uuid
+  businessId   String    @db.Uuid
+  name         String
+  managerName  String?
+  phone        String?
+  address      String
+  cityId       String    @db.Uuid
+  areaId       String?   @db.Uuid
+  latitude     Float?
+  longitude    Float?
+  openingHours Json? // e.g. {"mon": ["09:00", "22:00"], ...}
+  isActive     Boolean   @default(true)
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  city     City     @relation(fields: [cityId], references: [id])
+  area     Area?    @relation(fields: [areaId], references: [id], onDelete: SetNull)
+
+  staff       BusinessStaff[]
+  dealBranches DealBranch[]
+  redemptions Redemption[]
+
+  @@index([businessId])
+  @@index([cityId])
+  @@index([areaId])
+  @@index([latitude, longitude])
+}
+
+// ---------------------------------------------------------------------------
+// Deals
+// ---------------------------------------------------------------------------
+
+model Deal {
+  id                 String     @id @default(uuid()) @db.Uuid
+  businessId         String     @db.Uuid
+  categoryId         String     @db.Uuid
+  subcategoryId      String?    @db.Uuid
+  slug               String     @unique
+  title              String
+  description        String
+  shortDescription   String?
+  dealType           DealType
+  discountPercent    Int        @default(0)
+  maxDiscountAmount  Int? // paisa cap on the discount
+  originalPrice      Int? // paisa
+  dealPrice          Int? // paisa
+  requiresMembership Boolean    @default(true)
+  eligiblePlanIds    String[]   @default([]) // empty = all plans
+  status             DealStatus @default(DRAFT)
+  startDate          DateTime
+  endDate            DateTime
+  daysAvailable      String[]   @default([]) // e.g. ["MON","TUE"]; empty = all days
+  timeStart          String? // "HH:mm"
+  timeEnd            String? // "HH:mm"
+  usageLimit         Int?
+  perUserLimit       Int?
+  dailyLimit         Int?
+  monthlyLimit       Int?
+  terms              String?
+  viewCount          Int        @default(0)
+  redemptionCount    Int        @default(0)
+  reviewedBy         String?    @db.Uuid
+  reviewedAt         DateTime?
+  reviewNotes        String?
+  deletedAt          DateTime?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category    Category     @relation(fields: [categoryId], references: [id])
+  subcategory Subcategory? @relation(fields: [subcategoryId], references: [id], onDelete: SetNull)
+  reviewer    User?        @relation(fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  images       DealImage[]
+  dealBranches DealBranch[]
+  favorites    Favorite[]
+  redemptions  Redemption[]
+  reviews      Review[]
+
+  @@index([businessId])
+  @@index([categoryId])
+  @@index([subcategoryId])
+  @@index([status])
+  @@index([status, categoryId]) // public deals list: status + category filter
+  @@index([dealType])
+  @@index([startDate, endDate])
+}
+
+model DealImage {
+  id        String   @id @default(uuid()) @db.Uuid
+  dealId    String   @db.Uuid
+  url       String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deal Deal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([dealId])
+}
+
+model DealBranch {
+  dealId    String   @db.Uuid
+  branchId  String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  deal   Deal   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@id([dealId, branchId])
+  @@index([branchId])
+}
+
+model Favorite {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  dealId     String?  @db.Uuid
+  businessId String?  @db.Uuid
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deal     Deal?     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  business Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  // Nullable unique pairs (Postgres treats NULLs as distinct).
+  @@unique([userId, dealId])
+  @@unique([userId, businessId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Membership plans & memberships
+// ---------------------------------------------------------------------------
+
+model MembershipPlan {
+  id                   String    @id @default(uuid()) @db.Uuid
+  name                 String
+  slug                 String    @unique
+  description          String
+  regularPrice         Int // paisa
+  salePrice            Int // paisa
+  durationDays         Int
+  benefits             String[]  @default([])
+  rewardMultiplierBps  Int       @default(10000) // 10000 = 1x
+  cashbackPercent      Int       @default(0)
+  eligibleCategoryIds  String[]  @default([]) // empty = all categories
+  eligibleBusinessIds  String[]  @default([]) // empty = all businesses
+  isFeatured           Boolean   @default(false)
+  isActive             Boolean   @default(true)
+  deletedAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  memberships Membership[]
+
+  @@index([isActive])
+}
+
+model Membership {
+  id               String           @id @default(uuid()) @db.Uuid
+  userId           String           @db.Uuid
+  planId           String           @db.Uuid
+  membershipNumber String           @unique
+  status           MembershipStatus @default(PENDING)
+  startDate        DateTime?
+  endDate          DateTime?
+  paymentId        String?          @unique @db.Uuid
+  cancelledAt      DateTime?
+  deletedAt        DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  user User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan MembershipPlan @relation(fields: [planId], references: [id])
+  // The payment that activated this membership (1:1, FK held here).
+  payment Payment? @relation("MembershipPaidBy", fields: [paymentId], references: [id], onDelete: SetNull)
+
+  // All payments ever linked to this membership (history).
+  payments    Payment[]           @relation("PaymentForMembership")
+  history     MembershipHistory[]
+  redemptions Redemption[]
+
+  @@index([userId])
+  @@index([planId])
+  @@index([status])
+  @@index([endDate])
+}
+
+model MembershipHistory {
+  id           String   @id @default(uuid()) @db.Uuid
+  membershipId String   @db.Uuid
+  action       String // e.g. CREATED, ACTIVATED, RENEWED, CANCELLED
+  oldValues    Json?
+  newValues    Json?
+  actorId      String?  @db.Uuid
+  reason       String?
+  createdAt    DateTime @default(now()) // immutable: no updatedAt
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  actor      User?      @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([membershipId])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Vouchers
+// ---------------------------------------------------------------------------
+
+model Voucher {
+  id             String        @id @default(uuid()) @db.Uuid
+  businessId     String?       @db.Uuid
+  title          String
+  description    String
+  valueAmount    Int // paisa face value
+  codePrefix     String        @default("BCH")
+  totalQuantity  Int
+  perUserLimit   Int           @default(1)
+  validFrom      DateTime
+  validTo        DateTime
+  source         VoucherSource
+  pointsCost     Int? // paisa-equivalent? no — points required to claim
+  priceAmount    Int? // paisa purchase price, if purchasable
+  isActive       Boolean       @default(true)
+  deletedAt      DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+
+  userVouchers    UserVoucher[]
+  rewards         Reward[]
+  referralRewards ReferralReward[]
+  codes           VoucherCode[]
+
+  minBillPaisa Int? // paisa; voucher only applies when the bill meets this floor
+
+  @@index([businessId])
+  @@index([validFrom, validTo])
+  @@index([isActive])
+  @@index([source])
+}
+
+// Pre-generated claim codes for a voucher campaign. A customer claims one
+// code; the atomic claim is `UPDATE ... WHERE claimedAt IS NULL` so two
+// concurrent claims can never take the same code.
+model VoucherCode {
+  id            String    @id @default(uuid()) @db.Uuid
+  voucherId     String    @db.Uuid
+  code          String    @unique
+  claimedAt     DateTime?
+  claimedById   String?   @db.Uuid
+  userVoucherId String?   @unique @db.Uuid
+  createdAt     DateTime  @default(now())
+
+  voucher     Voucher      @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  userVoucher UserVoucher? @relation(fields: [userVoucherId], references: [id], onDelete: SetNull)
+
+  @@index([voucherId])
+  @@index([claimedAt])
+}
+
+model UserVoucher {
+  id         String        @id @default(uuid()) @db.Uuid
+  voucherId  String        @db.Uuid
+  userId     String        @db.Uuid
+  code       String        @unique
+  qrPayload  String?
+  status     VoucherStatus @default(AVAILABLE)
+  issuedAt   DateTime      @default(now())
+  redeemedAt DateTime?
+  expiresAt  DateTime
+  source     VoucherSource
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  voucher Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  payments Payment[]
+  redemptions Redemption[]
+  voucherCode VoucherCode?
+
+  @@index([voucherId])
+  @@index([userId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Redemptions & savings ledger
+// ---------------------------------------------------------------------------
+
+model Redemption {
+  id                 String           @id @default(uuid()) @db.Uuid
+  userId             String           @db.Uuid
+  dealId             String           @db.Uuid
+  businessId         String           @db.Uuid
+  branchId           String?          @db.Uuid
+  membershipId       String?          @db.Uuid
+  userVoucherId      String?          @db.Uuid
+  qrTokenJti         String           @unique // JWT id for the scan token
+  status             RedemptionStatus @default(INITIATED)
+  billAmount         Int // paisa
+  discountPercent    Int
+  discountAmount     Int // paisa
+  paidAmount         Int // paisa
+  savingAmount       Int // paisa
+  cashbackEarned     Int              @default(0) // paisa
+  pointsEarned       Int              @default(0)
+  calculationSnapshot Json // frozen pricing inputs for audit
+  confirmedBy        String?          @db.Uuid
+  confirmedAt        DateTime?
+  idempotencyKey     String?          @unique
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  user       User        @relation("RedemptionCustomer", fields: [userId], references: [id], onDelete: Cascade)
+  deal       Deal        @relation(fields: [dealId], references: [id])
+  business   Business    @relation(fields: [businessId], references: [id])
+  branch     Branch?     @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  membership Membership? @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+  confirmer  User?       @relation("RedemptionConfirmer", fields: [confirmedBy], references: [id], onDelete: SetNull)
+
+  savingsTransaction SavingsTransaction?
+  cashbacks          Cashback[]
+  userVoucher        UserVoucher? @relation(fields: [userVoucherId], references: [id], onDelete: SetNull)
+  commissionEntries  CommissionEntry[]
+
+  @@index([userId, createdAt])
+  @@index([dealId, createdAt])
+  @@index([businessId, createdAt])
+  @@index([status])
+}
+
+model SavingsTransaction {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  redemptionId String?  @unique @db.Uuid
+  categoryId   String?  @db.Uuid
+  amount       Int // paisa saved
+  periodYear   Int
+  periodMonth  Int // 1-12
+  createdAt    DateTime @default(now()) // immutable: no updatedAt
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  redemption Redemption? @relation(fields: [redemptionId], references: [id], onDelete: SetNull)
+  category   Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, periodYear, periodMonth])
+}
+
+// ---------------------------------------------------------------------------
+// Wallet (cash ledger)
+// ---------------------------------------------------------------------------
+
+model Wallet {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @unique @db.Uuid
+  balance   Int      @default(0) // paisa
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id           String       @id @default(uuid()) @db.Uuid
+  walletId     String       @db.Uuid
+  type         WalletTxnType
+  amount       Int // paisa, always positive; sign comes from type
+  balanceAfter Int // paisa
+  reference    String?
+  meta         Json?
+  createdAt    DateTime     @default(now()) // immutable: no updatedAt
+
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Rewards (points catalog & ledger)
+// ---------------------------------------------------------------------------
+
+model Reward {
+  id          String    @id @default(uuid()) @db.Uuid
+  title       String
+  description String
+  pointsCost  Int
+  voucherId   String?   @db.Uuid
+  stock       Int?
+  isActive    Boolean   @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  voucher Voucher? @relation(fields: [voucherId], references: [id], onDelete: SetNull)
+
+  @@index([voucherId])
+  @@index([isActive])
+}
+
+model RewardAccount {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @unique @db.Uuid
+  availablePoints Int      @default(0)
+  lifetimePoints  Int      @default(0)
+  redeemedPoints  Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions RewardTransaction[]
+}
+
+model RewardTransaction {
+  id           String        @id @default(uuid()) @db.Uuid
+  accountId    String        @db.Uuid
+  userId       String        @db.Uuid
+  type         PointsTxnType
+  points       Int // always positive; sign comes from type
+  balanceAfter Int
+  reference    String?
+  meta         Json?
+  createdAt    DateTime      @default(now()) // immutable: no updatedAt
+
+  account RewardAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([userId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Cashback ledger
+// ---------------------------------------------------------------------------
+
+model Cashback {
+  id           String         @id @default(uuid()) @db.Uuid
+  userId       String         @db.Uuid
+  redemptionId String?        @db.Uuid
+  amount       Int // paisa, always positive
+  status       CashbackStatus @default(PENDING)
+  expiresAt    DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  redemption Redemption? @relation(fields: [redemptionId], references: [id], onDelete: SetNull)
+
+  transactions CashbackTransaction[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model CashbackTransaction {
+  id           String          @id @default(uuid()) @db.Uuid
+  cashbackId   String?         @db.Uuid
+  userId       String          @db.Uuid
+  type         CashbackTxnType
+  amount       Int // paisa, always positive; sign comes from type
+  balanceAfter Int // paisa
+  reference    String?
+  createdAt    DateTime        @default(now()) // immutable: no updatedAt
+
+  cashback Cashback? @relation(fields: [cashbackId], references: [id], onDelete: SetNull)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([cashbackId])
+}
+
+// ---------------------------------------------------------------------------
+// Cashback withdrawals
+// ---------------------------------------------------------------------------
+
+enum WithdrawalMethod {
+  BANK
+  EASYPAISA
+  JAZZCASH
+}
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model CashbackWithdrawal {
+  id              String           @id @default(uuid()) @db.Uuid
+  userId          String           @db.Uuid
+  amount          Int // paisa, always positive
+  method          WithdrawalMethod
+  accountDetails  String // bank account / mobile wallet number (masked at rest by caller)
+  status          WithdrawalStatus @default(PENDING)
+  payoutReference String?
+  idempotencyKey  String?          @unique
+  requestedAt     DateTime         @default(now())
+  decidedAt       DateTime?
+  decidedBy       String?          @db.Uuid
+  rejectReason    String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Idempotency (client-supplied keys for safe retries on money-moving writes)
+// ---------------------------------------------------------------------------
+
+model IdempotencyKey {
+  key       String   @id
+  userId    String   @db.Uuid
+  scope     String // e.g. 'reward-redeem', 'cashback-withdraw'
+  response  Json // frozen successful response, replayed on retry
+  createdAt DateTime @default(now())
+  expiresAt DateTime // keys are kept 24h, then safe to prune
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Referrals
+// ---------------------------------------------------------------------------
+
+model Referral {
+  id             String         @id @default(uuid()) @db.Uuid
+  referrerId     String         @db.Uuid
+  code           String         @unique
+  referredUserId String?        @unique @db.Uuid
+  status         ReferralStatus @default(INVITED)
+  qualifiedAt    DateTime?
+  rewardedAt     DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  referrer     User  @relation("ReferralReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredUser User? @relation("ReferralReferred", fields: [referredUserId], references: [id], onDelete: SetNull)
+
+  rewards ReferralReward[]
+
+  @@index([referrerId])
+  @@index([status])
+}
+
+model ReferralReward {
+  id             String         @id @default(uuid()) @db.Uuid
+  referralId     String         @db.Uuid
+  userId         String         @db.Uuid // who receives the reward
+  type           String // e.g. POINTS, CASHBACK, VOUCHER
+  pointsAmount   Int?
+  cashbackAmount Int? // paisa
+  voucherId      String?        @db.Uuid
+  status         CashbackStatus @default(PENDING)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  referral Referral @relation(fields: [referralId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  voucher  Voucher? @relation(fields: [voucherId], references: [id], onDelete: SetNull)
+
+  @@index([referralId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Payments
+// ---------------------------------------------------------------------------
+
+model Payment {
+  id            String         @id @default(uuid()) @db.Uuid
+  userId        String         @db.Uuid
+  orderType     String // e.g. MEMBERSHIP, VOUCHER, WALLET_TOPUP
+  membershipId  String?        @db.Uuid // linked membership (history side)
+  userVoucherId String?        @db.Uuid // linked user voucher purchase
+  amount        Int // paisa
+  currency      String         @default("PKR")
+  gateway       PaymentGateway
+  status        PaymentStatus  @default(PENDING)
+  gatewayTxnId  String?
+  paidAt        DateTime?
+  failureReason String?
+  deletedAt     DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // All payments ever made against a membership (e.g. signup + renewals).
+  membership Membership? @relation("PaymentForMembership", fields: [membershipId], references: [id], onDelete: SetNull)
+  userVoucher UserVoucher? @relation(fields: [userVoucherId], references: [id], onDelete: SetNull)
+  // Reverse side of Membership.paymentId (the payment that activated it).
+  membershipPayment Membership? @relation("MembershipPaidBy")
+
+  attempts      PaymentAttempt[]
+  manualReceipt ManualPaymentReceipt?
+
+  @@index([userId])
+  @@index([status])
+  @@index([gateway])
+  @@index([gatewayTxnId])
+  @@index([membershipId])
+}
+
+model PaymentAttempt {
+  id              String        @id @default(uuid()) @db.Uuid
+  paymentId       String        @db.Uuid
+  gateway         PaymentGateway
+  requestPayload  Json?
+  responsePayload Json?
+  status          PaymentStatus
+  createdAt       DateTime      @default(now()) // immutable: no updatedAt
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+}
+
+model ManualPaymentReceipt {
+  id          String            @id @default(uuid()) @db.Uuid
+  paymentId   String            @unique @db.Uuid
+  bankName    String?
+  accountTitle String?
+  iban        String?
+  receiptUrl  String
+  status      ApplicationStatus @default(SUBMITTED)
+  reviewedBy  String?           @db.Uuid
+  reviewedAt  DateTime?
+  reviewNotes String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  payment  Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  reviewer User?   @relation(fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Commissions & settlements
+// ---------------------------------------------------------------------------
+
+model Commission {
+  id          String          @id @default(uuid()) @db.Uuid
+  scope       CommissionScope
+  type        CommissionType
+  businessId  String?         @db.Uuid
+  categoryId  String?         @db.Uuid
+  percentBps  Int? // basis points, e.g. 1500 = 15%
+  fixedAmount Int? // paisa
+  isActive    Boolean         @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  business Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([scope])
+  @@index([businessId])
+  @@index([categoryId])
+  @@index([isActive])
+}
+
+/// Per-redemption commission ledger row. Immutable — adjustments are new rows.
+model CommissionEntry {
+  id              String                @id @default(uuid()) @db.Uuid
+  kind            CommissionEntryKind   @default(REDEMPTION)
+  redemptionId    String?               @unique @db.Uuid
+  businessId      String                @db.Uuid
+  paidAmount      Int? // paisa (REDEMPTION rows: final paid amount the commission is based on)
+  commissionBps   Int? // basis points used for this row
+  commissionPaisa Int // paisa, signed (ADJUSTMENT rows may be negative)
+  status          CommissionEntryStatus @default(ACCRUED)
+  settlementId    String?               @db.Uuid
+  note            String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  redemption Redemption? @relation(fields: [redemptionId], references: [id], onDelete: SetNull)
+  business   Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  settlement Settlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, status])
+  @@index([settlementId])
+  @@index([createdAt])
+}
+
+enum CommissionEntryKind {
+  REDEMPTION
+  ADJUSTMENT
+}
+
+enum CommissionEntryStatus {
+  ACCRUED
+  SETTLED
+  CANCELLED
+}
+
+model Settlement {
+  id               String          @id @default(uuid()) @db.Uuid
+  settlementNumber String          @unique
+  businessId       String          @db.Uuid
+  periodStart      DateTime
+  periodEnd        DateTime
+  grossAmount      Int // paisa: total customer-paid amounts in the period
+  commissionAmount Int // paisa: platform commission accrued in the period
+  adjustments      Int             @default(0) // paisa, signed adjustments
+  netAmount        Int // paisa: amount the business owes the platform
+  status           SettlementStatus @default(PENDING)
+  paidAt           DateTime?
+  payoutReference  String? // business's payment reference when marked PAID
+  payoutMethod     String? // e.g. BANK_TRANSFER, JAZZCASH, EASYPAISA
+  cancelledAt      DateTime?
+  cancelReason     String?
+  notes            String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  entries  CommissionEntry[]
+
+  @@index([businessId])
+  @@index([status])
+  @@index([periodStart, periodEnd])
+  @@unique([businessId, periodStart, periodEnd]) // one settlement per business per period (idempotency)
+}
+
+// ---------------------------------------------------------------------------
+// Reviews
+// ---------------------------------------------------------------------------
+
+model Review {
+  id         String       @id @default(uuid()) @db.Uuid
+  businessId String       @db.Uuid
+  userId     String       @db.Uuid
+  dealId     String?      @db.Uuid
+  rating     Int // 1-5
+  title      String?
+  body       String?
+  status     ReviewStatus @default(PENDING)
+  // Partner reply (one reply per review, immutable once posted).
+  replyBody  String?
+  repliedAt  DateTime?
+  repliedBy  String?      @db.Uuid
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deal     Deal?    @relation(fields: [dealId], references: [id], onDelete: SetNull)
+
+  photos ReviewPhoto[]
+
+  // One review per user per (business, deal). dealId NULL = general review.
+  @@unique([businessId, userId, dealId])
+  @@index([businessId])
+  @@index([userId])
+  @@index([dealId])
+  @@index([status])
+}
+
+model ReviewPhoto {
+  id        String   @id @default(uuid()) @db.Uuid
+  reviewId  String   @db.Uuid
+  url       String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  review Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId])
+}
+
+// ---------------------------------------------------------------------------
+// Staff invitations (Phase 8)
+// ---------------------------------------------------------------------------
+
+model StaffInvitation {
+  id         String           @id @default(uuid()) @db.Uuid
+  businessId String           @db.Uuid
+  invitedBy  String           @db.Uuid
+  email      String
+  role       StaffRole
+  branchId   String?          @db.Uuid
+  token      String           @unique // secret acceptance token (opaque)
+  status     InvitationStatus @default(PENDING)
+  expiresAt  DateTime
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  inviter  User     @relation("StaffInvitationInviter", fields: [invitedBy], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([email])
+  @@index([expiresAt])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+// ---------------------------------------------------------------------------
+// Notifications & campaigns
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id        String             @id @default(uuid()) @db.Uuid
+  userId    String?            @db.Uuid
+  // Machine key, e.g. MEMBERSHIP_EXPIRING — used for dedup + preference routing.
+  type      String?
+  title     String
+  body      String
+  channel   NotificationChannel
+  status    NotificationStatus @default(PENDING)
+  data      Json?
+  readAt    DateTime?
+  sentAt    DateTime?
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, createdAt]) // inbox listing (userId + order by createdAt desc)
+  @@index([status])
+  @@index([channel])
+  @@index([type])
+}
+
+/// Per-user notification topic toggles. Row is created lazily on first
+/// GET/PATCH /users/me/notification-preferences; absent row = all defaults (true).
+model NotificationPreference {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @unique @db.Uuid
+  dealAlerts         Boolean  @default(true)
+  savingsSummary     Boolean  @default(true)
+  membershipReminders Boolean @default(true)
+  referralUpdates    Boolean  @default(true)
+  marketing          Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model NotificationCampaign {
+  id              String             @id @default(uuid()) @db.Uuid
+  name            String
+  audience        Json // targeting rules snapshot
+  channel         NotificationChannel
+  title           String
+  body            String
+  scheduledAt     DateTime?
+  status          CampaignStatus     @default(DRAFT)
+  sentCount       Int                @default(0)
+  deliveredCount  Int                @default(0)
+  openedCount     Int                @default(0)
+  clickedCount    Int                @default(0)
+  createdBy       String?            @db.Uuid
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  creator User? @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+// ---------------------------------------------------------------------------
+// CMS: banners & pages
+// ---------------------------------------------------------------------------
+
+model Banner {
+  id             String          @id @default(uuid()) @db.Uuid
+  placement      BannerPlacement
+  imageUrl       String
+  mobileImageUrl String?
+  heading        String?
+  description    String?
+  ctaText        String?
+  ctaUrl         String?
+  startDate      DateTime?
+  endDate        DateTime?
+  priority       Int             @default(0)
+  isActive       Boolean         @default(true)
+  deletedAt      DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([placement])
+  @@index([isActive])
+  @@index([startDate, endDate])
+}
+
+model CMSPage {
+  id              String    @id @default(uuid()) @db.Uuid
+  slug            String    @unique
+  title           String
+  content         String
+  metaTitle       String?
+  metaDescription String?
+  isPublished     Boolean   @default(false)
+  updatedBy       String?   @db.Uuid
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  updater User? @relation(fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  @@index([isPublished])
+}
+
+// ---------------------------------------------------------------------------
+// FAQ entries (structured, grouped; power GET /support/faq and /cms/faqs)
+// ---------------------------------------------------------------------------
+
+model FaqEntry {
+  id          String   @id @default(uuid()) @db.Uuid
+  slug        String?  @unique // stable seed key, e.g. "seed-faq-membership-1"
+  category    String   @default("General")
+  question    String
+  answer      String
+  sortOrder   Int      @default(0)
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isPublished])
+  @@index([category, sortOrder])
+}
+
+// ---------------------------------------------------------------------------
+// Support
+// ---------------------------------------------------------------------------
+
+model SupportTicket {
+  id           String         @id @default(uuid()) @db.Uuid
+  ticketNumber String         @unique
+  userId       String         @db.Uuid
+  businessId   String?        @db.Uuid
+  category     String // e.g. PAYMENT, DEAL, MEMBERSHIP, ACCOUNT
+  subject      String
+  description  String
+  status       TicketStatus   @default(OPEN)
+  priority     TicketPriority @default(MEDIUM)
+  assignedTo   String?        @db.Uuid
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  user     User      @relation("TicketCustomer", fields: [userId], references: [id], onDelete: Cascade)
+  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  assignee User?     @relation("TicketAssignee", fields: [assignedTo], references: [id], onDelete: SetNull)
+
+  messages SupportMessage[]
+
+  @@index([userId])
+  @@index([businessId])
+  @@index([status])
+  @@index([priority])
+}
+
+model SupportMessage {
+  id          String   @id @default(uuid()) @db.Uuid
+  ticketId    String   @db.Uuid
+  senderId    String   @db.Uuid
+  message     String
+  attachments Json?
+  createdAt   DateTime @default(now()) // immutable: no updatedAt
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  sender User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Platform internals: audit log & settings
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  actorId   String?  @db.Uuid
+  actorRole String?
+  action    String // e.g. "deal.approve"
+  entity    String // e.g. "Deal"
+  entityId  String
+  oldValues Json?
+  newValues Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now()) // immutable: no updatedAt
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entity, entityId])
+  @@index([actorId, createdAt])
+  @@index([createdAt])
+}
+
+model SystemSetting {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique
+  value       Json
+  description String?
+  updatedBy   String?  @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  updater User? @relation(fields: [updatedBy], references: [id], onDelete: SetNull)
+}

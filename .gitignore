@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+
+# build outputs
+dist/
+build/
+.turbo/
+.next/
+
+# env files
+.env
+.env.local
+.env.*.local
+
+# logs
+*.log
+
+# OS
+.DS_Store
+
+# coverage
+coverage/
+
+# uploads (local dev artefacts)
+uploads/
+
+# NOTE: prisma/migrations/ is intentionally NOT ignored — migrations are committed.

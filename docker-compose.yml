@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bachatly
+      POSTGRES_PASSWORD: bachatly
+      POSTGRES_DB: bachatly
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U bachatly -d bachatly']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bachatly
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redisdata:/data
+    networks:
+      - bachatly
+
+  minio:
+    image: minio/minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: bachatly
+      MINIO_ROOT_PASSWORD: minio123
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - miniodata:/data
+    networks:
+      - bachatly
+
+networks:
+  bachatly:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

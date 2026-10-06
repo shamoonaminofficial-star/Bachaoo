@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bachatly — Design Preview (static)</title>
+<style>
+  :root{
+    --primary:#0B6B4F; --primary-dark:#095C44; --ink:#101820; --accent:#FFB020;
+    --success:#16A34A; --warning:#F59E0B; --error:#DC2626;
+    --bg:#F8FAF9; --card:#FFFFFF; --line:#E7EDEA; --muted:#5B6B64;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1120px; margin:0 auto; padding:0 20px;}
+  /* header */
+  header{position:sticky; top:0; background:rgba(255,255,255,.92); backdrop-filter:blur(8px); border-bottom:1px solid var(--line); z-index:10;}
+  .nav{display:flex; align-items:center; gap:18px; height:64px;}
+  .logo{display:flex; align-items:center; gap:8px; font-weight:800; font-size:20px; color:var(--primary);}
+  .logo .mark{width:32px; height:32px; border-radius:10px; background:var(--primary); color:#fff; display:flex; align-items:center; justify-content:center; font-size:18px;}
+  .links{display:flex; gap:16px; font-size:14px; color:var(--muted); margin-left:12px;}
+  .links span{cursor:default;}
+  .spacer{flex:1;}
+  .btn{display:inline-flex; align-items:center; justify-content:center; border-radius:999px; font-weight:700; font-size:14px; padding:10px 20px; border:1px solid transparent; cursor:default;}
+  .btn-primary{background:var(--primary); color:#fff;}
+  .btn-outline{border-color:var(--line); color:var(--ink); background:#fff;}
+  .btn-accent{background:var(--accent); color:var(--ink);}
+  /* hero */
+  .hero{background:var(--ink); color:#fff; border-radius:24px; margin:28px 0; padding:56px 40px; position:relative; overflow:hidden;}
+  .hero::after{content:""; position:absolute; right:-80px; top:-80px; width:340px; height:340px; border-radius:50%; background:rgba(11,107,79,.55);}
+  .hero::before{content:""; position:absolute; right:120px; bottom:-120px; width:220px; height:220px; border-radius:50%; background:rgba(255,176,32,.28);}
+  .hero h1{font-size:clamp(34px,5vw,54px); line-height:1.08; letter-spacing:-.02em; max-width:560px; position:relative; z-index:1;}
+  .hero h1 .hl{color:var(--accent);}
+  .hero p{margin:16px 0 24px; color:#C7D2CD; font-size:17px; max-width:480px; position:relative; z-index:1;}
+  .hero-cta{display:flex; gap:12px; flex-wrap:wrap; position:relative; z-index:1;}
+  .searchbar{margin-top:26px; background:#fff; border-radius:16px; padding:8px; display:flex; gap:8px; max-width:620px; position:relative; z-index:1;}
+  .searchbar input{flex:1; border:0; outline:0; font-size:15px; padding:10px 12px; border-radius:10px; background:#F1F5F3;}
+  .notice{margin:18px 0 0; font-size:12px; color:#9AA8A2; text-align:center;}
+  /* sections */
+  .section{margin:44px 0;}
+  .section-head{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:18px;}
+  .section-head h2{font-size:24px; letter-spacing:-.01em;}
+  .section-head a{font-size:14px; color:var(--primary); font-weight:600;}
+  /* categories */
+  .cats{display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:12px;}
+  .cat{background:var(--card); border:1px solid var(--line); border-radius:18px; padding:18px 12px; text-align:center; box-shadow:0 1px 2px rgba(16,24,32,.04);}
+  .cat .ico{font-size:28px; margin-bottom:8px;}
+  .cat .t{font-size:13px; font-weight:600;}
+  /* deal cards */
+  .deals{display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:16px;}
+  .deal{background:var(--card); border:1px solid var(--line); border-radius:20px; overflow:hidden; box-shadow:0 1px 3px rgba(16,24,32,.06); transition:transform .18s ease, box-shadow .18s ease;}
+  .deal:hover{transform:translateY(-3px); box-shadow:0 10px 24px rgba(16,24,32,.10);}
+  .deal-img{height:150px; display:flex; align-items:center; justify-content:center; font-size:52px; position:relative;}
+  .deal-img .off{position:absolute; top:10px; left:10px; background:var(--accent); color:var(--ink); font-weight:800; font-size:13px; padding:5px 10px; border-radius:999px;}
+  .deal-img .badge{position:absolute; top:10px; right:10px; background:var(--ink); color:#fff; font-size:10px; font-weight:700; letter-spacing:.06em; padding:5px 9px; border-radius:999px;}
+  .deal-body{padding:16px;}
+  .biz{display:flex; align-items:center; gap:8px; margin-bottom:8px;}
+  .biz .av{width:28px; height:28px; border-radius:9px; background:var(--primary); color:#fff; font-size:13px; font-weight:800; display:flex; align-items:center; justify-content:center;}
+  .biz .n{font-size:13px; color:var(--muted); font-weight:600;}
+  .biz .v{color:var(--success); font-size:13px;}
+  .deal h3{font-size:16px; margin-bottom:6px;}
+  .deal .desc{font-size:13px; color:var(--muted); margin-bottom:10px;}
+  .deal .meta{display:flex; justify-content:space-between; align-items:center; font-size:12px; color:var(--muted);}
+  .deal .meta .m{display:inline-flex; align-items:center; gap:4px; background:#EFF6F2; color:var(--primary); font-weight:700; padding:4px 9px; border-radius:999px;}
+  .deal .cta{margin-top:12px; width:100%;}
+  /* how it works */
+  .steps{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px;}
+  .step{background:var(--card); border:1px solid var(--line); border-radius:20px; padding:22px;}
+  .step .n{width:36px; height:36px; border-radius:12px; background:#EFF6F2; color:var(--primary); font-weight:800; display:flex; align-items:center; justify-content:center; margin-bottom:12px;}
+  .step h4{margin-bottom:6px;}
+  .step p{font-size:13px; color:var(--muted);}
+  /* plans */
+  .plans{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px;}
+  .plan{background:var(--card); border:1px solid var(--line); border-radius:22px; padding:26px; position:relative;}
+  .plan.feat{border:2px solid var(--primary); box-shadow:0 12px 30px rgba(11,107,79,.12);}
+  .plan .tag{position:absolute; top:-12px; left:50%; transform:translateX(-50%); background:var(--primary); color:#fff; font-size:11px; font-weight:800; letter-spacing:.05em; padding:5px 14px; border-radius:999px;}
+  .plan h3{font-size:18px;}
+  .plan .price{font-size:32px; font-weight:800; margin:10px 0 2px;}
+  .plan .per{font-size:13px; color:var(--muted); margin-bottom:14px;}
+  .plan ul{list-style:none; margin-bottom:18px;}
+  .plan li{font-size:13px; color:var(--muted); padding:6px 0; border-bottom:1px dashed var(--line);}
+  .plan li:last-child{border:0;}
+  .plan li::before{content:"✓ "; color:var(--success); font-weight:800;}
+  /* footer */
+  footer{border-top:1px solid var(--line); margin-top:56px; padding:28px 0 40px; font-size:13px; color:var(--muted);}
+  .fgrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:18px; margin-bottom:20px;}
+  .fgrid h5{font-size:13px; color:var(--ink); margin-bottom:10px;}
+  .fgrid div div{padding:4px 0;}
+  @media(max-width:640px){ .links{display:none;} .hero{padding:36px 24px;} }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap nav">
+    <div class="logo"><span class="mark">B</span> Bachatly</div>
+    <div class="links"><span>Home</span><span>Explore Deals</span><span>Categories</span><span>Businesses</span><span>Nearby</span><span>Membership</span><span>Rewards</span></div>
+    <div class="spacer"></div>
+    <span class="btn btn-outline">Login</span>
+    <span class="btn btn-primary">Join Now</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="notice">STATIC DESIGN PREVIEW — asal design tokens aur demo data ke saath. Yeh running app nahi hai.</div>
+
+  <section class="hero">
+    <h1>Save More. <span class="hl">Live More.</span></h1>
+    <p>Discover exclusive deals, discounts, vouchers and rewards from businesses around you.</p>
+    <div class="hero-cta">
+      <span class="btn btn-accent">Explore Deals</span>
+      <span class="btn btn-outline">Become a Member</span>
+    </div>
+    <div class="searchbar">
+      <input placeholder="What are you looking for?">
+      <span class="btn btn-primary">Search</span>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>Popular Categories</h2><a>View all</a></div>
+    <div class="cats">
+      <div class="cat"><div class="ico">🍕</div><div class="t">Food & Restaurants</div></div>
+      <div class="cat"><div class="ico">☕</div><div class="t">Cafe & Desserts</div></div>
+      <div class="cat"><div class="ico">🛒</div><div class="t">Grocery</div></div>
+      <div class="cat"><div class="ico">👗</div><div class="t">Fashion</div></div>
+      <div class="cat"><div class="ico">💇</div><div class="t">Beauty & Salon</div></div>
+      <div class="cat"><div class="ico">🚗</div><div class="t">Automotive</div></div>
+      <div class="cat"><div class="ico">🎮</div><div class="t">Entertainment</div></div>
+      <div class="cat"><div class="ico">💊</div><div class="t">Health & Wellness</div></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>Featured Deals</h2><a>View all deals</a></div>
+    <div class="deals">
+      <div class="deal">
+        <div class="deal-img" style="background:#FFF4DE;"><span class="off">20% OFF</span><span class="badge">MEMBERS ONLY</span>🍕</div>
+        <div class="deal-body">
+          <div class="biz"><span class="av">U</span><span class="n">Urban Slice</span><span class="v">✓</span></div>
+          <h3>20% OFF Premium Pizza Deal</h3>
+          <p class="desc">Flat 20% off all large premium pizzas, dine-in & takeaway.</p>
+          <div class="meta"><span>📍 Sargodha · 1.2 km</span><span class="m">Member</span></div>
+          <span class="btn btn-primary cta">View Deal</span>
+        </div>
+      </div>
+      <div class="deal">
+        <div class="deal-img" style="background:#FDEBF3;"><span class="off">30% OFF</span><span class="badge">TRENDING</span>💅</div>
+        <div class="deal-body">
+          <div class="biz"><span class="av">G</span><span class="n">GlowNest Salon</span><span class="v">✓</span></div>
+          <h3>30% OFF Signature Facial</h3>
+          <p class="desc">Signature glow facial with skin analysis, Gulberg flagship.</p>
+          <div class="meta"><span>📍 Lahore · 3.4 km</span><span class="m">Member</span></div>
+          <span class="btn btn-primary cta">View Deal</span>
+        </div>
+      </div>
+      <div class="deal">
+        <div class="deal-img" style="background:#E8F1FD;"><span class="off">15% OFF</span><span class="badge">NEW</span>🚗</div>
+        <div class="deal-body">
+          <div class="biz"><span class="av">A</span><span class="n">AutoCare Plus</span><span class="v">✓</span></div>
+          <h3>15% OFF Complete Detailing</h3>
+          <p class="desc">Interior + exterior detailing with upfront pricing, G-9.</p>
+          <div class="meta"><span>📍 Islamabad · 5.1 km</span><span class="m">Member</span></div>
+          <span class="btn btn-primary cta">View Deal</span>
+        </div>
+      </div>
+      <div class="deal">
+        <div class="deal-img" style="background:#EDE7FB;"><span class="off">25% OFF</span><span class="badge">LIMITED TIME</span>👕</div>
+        <div class="deal-body">
+          <div class="biz"><span class="av">T</span><span class="n">ThreadLine Fashion</span><span class="v">✓</span></div>
+          <h3>25% OFF Winter Collection</h3>
+          <p class="desc">New winter line for men & women, DHA Phase 6 store.</p>
+          <div class="meta"><span>📍 Karachi · 2.8 km</span><span class="m">Member</span></div>
+          <span class="btn btn-primary cta">View Deal</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>How It Works</h2></div>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><h4>Join</h4><p>Purchase your membership in under a minute.</p></div>
+      <div class="step"><div class="n">2</div><h4>Discover</h4><p>Find participating businesses and exclusive offers near you.</p></div>
+      <div class="step"><div class="n">3</div><h4>Redeem</h4><p>Show or scan your digital membership QR code at checkout.</p></div>
+      <div class="step"><div class="n">4</div><h4>Save</h4><p>Enjoy discounts and track your total savings in the app.</p></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>Membership Plans</h2><a>Compare all</a></div>
+    <div class="plans">
+      <div class="plan">
+        <h3>Starter</h3><div class="price">Rs. 499</div><div class="per">per 30 days</div>
+        <ul><li>Up to 20% off at partner restaurants</li><li>Weekly member-only flash vouchers</li><li>Savings tracker in the app</li></ul>
+        <span class="btn btn-outline" style="width:100%">Get Membership</span>
+      </div>
+      <div class="plan feat">
+        <div class="tag">MOST POPULAR</div>
+        <h3>Premium</h3><div class="price">Rs. 1,499</div><div class="per">per 180 days · <s style="color:var(--muted)">Rs. 1,999</s></div>
+        <ul><li>Up to 40% off across all categories</li><li>5% cashback on every redemption</li><li>2x reward points on dining deals</li><li>Priority customer support</li></ul>
+        <span class="btn btn-primary" style="width:100%">Get Membership</span>
+      </div>
+      <div class="plan">
+        <h3>Family</h3><div class="price">Rs. 2,499</div><div class="per">per 365 days · <s style="color:var(--muted)">Rs. 3,499</s></div>
+        <ul><li>Up to 50% off across all categories</li><li>7% cashback on every redemption</li><li>Shareable with up to 4 family members</li><li>Free birthday vouchers</li></ul>
+        <span class="btn btn-outline" style="width:100%">Get Membership</span>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="fgrid">
+      <div><h5>Company</h5><div>About</div><div>Contact</div><div>Careers</div></div>
+      <div><h5>Customers</h5><div>Explore Deals</div><div>Membership</div><div>Rewards</div><div>Help</div></div>
+      <div><h5>Partners</h5><div>Become a Partner</div><div>Partner Login</div></div>
+      <div><h5>Legal</h5><div>Terms</div><div>Privacy</div><div>Refund Policy</div></div>
+    </div>
+    <div>© 2026 Bachatly — Save More. Live More. · Static design preview</div>
+  </footer>
+</div>
+</body>
+</html>

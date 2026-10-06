@@ -1,0 +1,23 @@
+# Bachatly web — Netlify (free tier)
+# Netlify dashboard → Add new site → Import from Git → select repo.
+# Build settings are read from here; package manager is auto-detected
+# from pnpm-lock.yaml at the repo root.
+[build]
+  command = "pnpm --filter @bachatly/web build"
+  publish = "apps/web/.next"
+
+[build.environment]
+  NODE_VERSION = "20.18.0"
+
+# NEXT_PUBLIC_* vars must be set in the Netlify UI (Site settings → Environment):
+#   NEXT_PUBLIC_API_URL = https://bachatly-api.onrender.com   (tumhara Render URL)
+#   NEXT_PUBLIC_SITE_URL = https://tumhari-site.netlify.app    (ya custom domain)
+#   NEXT_PUBLIC_GOOGLE_MAPS_API_KEY = (optional, restricted browser key)
+
+# Security headers (mirrors next.config.mjs; Netlify applies these too)
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
